@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import type { Customer, NewCustomerInput } from './types'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Controller, useForm } from 'react-hook-form'
+import { z } from 'zod'
+import type { NewCustomerInput } from './types'
 import { Button } from '@/components/shadcn-ui/button'
 import {
   Dialog,
@@ -10,6 +13,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/shadcn-ui/dialog'
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/shadcn-ui/field'
 import { Input } from '@/components/shadcn-ui/input'
 import {
   Select,
@@ -19,46 +28,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/shadcn-ui/select'
-
+/**
+ *- react-hook-form：替你管字段值、错误、提交、重置
+  - zod：替你描述校验规则
+  - @hookform/resolvers：把 zod 校验接进表单
+ * **/
 type CustomerFormProps = {
   onAddCustomer: (customer: NewCustomerInput) => void
-
 }
+//负责描述字段规则
+const customerFormSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required'),
+  email: z.email('Enter a valid email address'),
+  status: z.enum(['active', 'inactive']),
+})
 
-type PreventableEvent = {
-  preventDefault: () => void
-}
+type CustomerFormInput = z.input<typeof customerFormSchema>
+type CustomerFormValues = z.output<typeof customerFormSchema>
 
 // 接收父组件传入的 props，并从中解构出 onAddCustomer 回调函数。
 export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [newCustomerName, setNewCustomerName] = useState('')
-  const [newCustomerEmail, setNewCustomerEmail] = useState('')
-  const [newCustomerStatus, setNewCustomerStatus] =
-    useState<Customer['status']>('active')
 
-  const canAddCustomer =
-    newCustomerName.trim() !== '' && newCustomerEmail.trim() !== ''
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    formState: { errors, isValid, isSubmitting },
+  } = useForm<CustomerFormInput, unknown, CustomerFormValues>({
+    resolver: zodResolver(customerFormSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      status: 'active',
+    },
+    mode: 'onChange',
+  })
 
-  function handleSubmit(event: PreventableEvent) {
-    event.preventDefault()
+  function handleValidSubmit(values: CustomerFormValues) {
+    onAddCustomer(values)
 
-    const name = newCustomerName.trim()
-    const email = newCustomerEmail.trim()
-
-    if (name === '' || email === '') {
-      return
-    }
-
-    onAddCustomer({
-      name,
-      email,
-      status: newCustomerStatus,
-    })
-
-    setNewCustomerName('')
-    setNewCustomerEmail('')
-    setNewCustomerStatus('active')
+    reset()
     setIsDialogOpen(false)
   }
 
@@ -69,7 +80,10 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-xl">
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={handleSubmit(handleValidSubmit)}
+        >
           <DialogHeader>
             <DialogTitle>Add customer</DialogTitle>
             <DialogDescription>
@@ -77,37 +91,58 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_140px]">
-            <Input
-              placeholder="Customer name"
-              value={newCustomerName}
-              onChange={(event) => setNewCustomerName(event.target.value)}
-            />
+          <FieldGroup className="grid gap-3 md:grid-cols-[1fr_1fr_140px]">
+            <Field data-invalid={Boolean(errors.name)}>
+              <FieldLabel htmlFor="customer-name">Name</FieldLabel>
+              <Input
+                id="customer-name"
+                aria-invalid={Boolean(errors.name)}
+                placeholder="Customer name"
+                {...register('name')}
+              />
+              <FieldError errors={[errors.name]} />
+            </Field>
 
-            <Input
-              placeholder="Email"
-              type="email"
-              value={newCustomerEmail}
-              onChange={(event) => setNewCustomerEmail(event.target.value)}
-            />
+            <Field data-invalid={Boolean(errors.email)}>
+              <FieldLabel htmlFor="customer-email">Email</FieldLabel>
+              <Input
+                id="customer-email"
+                aria-invalid={Boolean(errors.email)}
+                placeholder="Email"
+                type="email"
+                {...register('email')}
+              />
+              <FieldError errors={[errors.email]} />
+            </Field>
 
-            <Select
-              value={newCustomerStatus}
-              onValueChange={(value) =>
-                setNewCustomerStatus(value as Customer['status'])
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="active">active</SelectItem>
-                  <SelectItem value="inactive">inactive</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
+            <Field data-invalid={Boolean(errors.status)}>
+              <FieldLabel>Status</FieldLabel>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  >
+                    <SelectTrigger
+                      aria-invalid={Boolean(errors.status)}
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="active">active</SelectItem>
+                        <SelectItem value="inactive">inactive</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError errors={[errors.status]} />
+            </Field>
+          </FieldGroup>
 
           <DialogFooter>
             <Button
@@ -117,7 +152,7 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!canAddCustomer}>
+            <Button type="submit" disabled={!isValid || isSubmitting}>
               Add
             </Button>
           </DialogFooter>
