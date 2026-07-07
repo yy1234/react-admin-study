@@ -629,6 +629,128 @@ zod 校验失败
 <FieldError errors={[errors.name]} />
 ```
 
+## 第六阶段：表单提交流程
+
+这一节补齐真实项目里最常见的一段链路：
+
+```txt
+用户点击提交
+  -> handleSubmit 先拦截表单默认提交
+  -> zodResolver 做字段校验
+  -> 校验通过后调用 handleValidSubmit
+  -> handleValidSubmit 等待 onAddCustomer
+  -> 成功：reset + 关闭弹窗
+  -> 失败：setError 把服务端错误显示到字段上
+```
+
+当前 `CustomerForm` 里这一行很关键：
+
+```tsx
+onSubmit={handleSubmit(handleValidSubmit)}
+```
+
+不要直接写成：
+
+```tsx
+onSubmit={handleValidSubmit}
+```
+
+原因是 `handleValidSubmit` 只应该接收“校验通过后的字段值”。
+
+`handleSubmit` 帮我们做了几件事：
+
+- 阻止浏览器默认提交刷新页面
+- 收集表单字段值
+- 调用 zodResolver 校验
+- 校验通过才调用 `handleValidSubmit(values)`
+- 校验失败时自动更新 `errors`
+- 在异步提交期间维护 `isSubmitting`
+
+### isSubmitting
+
+`isSubmitting` 来自 `useForm`：
+
+```tsx
+formState: { errors, isValid, isSubmitting }
+```
+
+只要 `handleValidSubmit` 是 async，并且里面 await 了异步逻辑，`react-hook-form` 就能知道当前正在提交。
+
+项目里现在这样用：
+
+```tsx
+<Button type="submit" disabled={!isValid || isSubmitting}>
+  {isSubmitting ? 'Adding...' : 'Add'}
+</Button>
+```
+
+作用：
+
+- 表单不合法时不能提交
+- 正在提交时不能重复点
+- 提交中按钮文案变成 `Adding...`
+
+### setError
+
+`zod` 适合做前端自己能判断的校验，比如：
+
+- 必填
+- 邮箱格式
+- 字符长度
+- 枚举值是否合法
+
+但有些错误必须问服务端或数据层，比如：
+
+- 邮箱是否已经存在
+- 用户名是否被占用
+- 权限是否允许当前操作
+- 库存是否足够
+
+所以重复邮箱没有写进 zod schema，而是写在 `useCustomers` 的 `addCustomer` 里模拟服务端检查。
+
+失败时，`CustomerForm` 用 `setError` 把错误塞回字段：
+
+```tsx
+setError(
+  'email',
+  {
+    type: 'server',
+    message: 'This email already exists.',
+  },
+  { shouldFocus: true },
+)
+```
+
+这段代码的意思是：
+
+```txt
+email 字段出错了
+错误类型是 server
+错误文案显示在 email 下面
+并且自动聚焦到 email 输入框
+```
+
+### 当前职责边界
+
+`CustomerForm` 负责：
+
+- 表单字段状态
+- 表单校验错误展示
+- 提交中按钮状态
+- 成功后关闭弹窗
+- 失败后显示字段错误
+
+`useCustomers` 负责：
+
+- 客户列表数据
+- 新增客户
+- 删除客户
+- 修改客户状态
+- 搜索、筛选、排序、分页
+- 模拟后端重复邮箱检查
+
+这个边界很重要：表单组件不要知道客户列表内部怎么维护，它只调用 `onAddCustomer(values)`。
+
 ## 当前项目能力
 
 当前这个学习项目已经覆盖：
@@ -722,4 +844,3 @@ app/page.tsx
 ```
 
 先看页面状态、组件树和 props 流动。不要一开始就钻 `use-stream-handler.ts`，那部分属于 LangGraph 流式调用细节。
-

@@ -85,11 +85,29 @@ export function useCustomers() {
     setCurrentPage(safePage)
   }
 
-  function addCustomer(customerInput: NewCustomerInput) {
+  async function addCustomer(customerInput: NewCustomerInput) {
+    // 模拟真实接口耗时，这样表单里的 isSubmitting 状态能被看见。
+    await new Promise((resolve) => window.setTimeout(resolve, 600))
+
+    const normalizedEmail = customerInput.email.toLowerCase()
+    const hasDuplicateEmail = customerList.some(
+      (customer) => customer.email.toLowerCase() === normalizedEmail,
+    )
+
+    if (hasDuplicateEmail) {
+      throw new Error('This email already exists.')
+    }
+
     setCustomerList((currentCustomers) => {
-      const nextCustomerNumber = currentCustomers.length + 1
+      const maxCustomerNumber = currentCustomers.reduce((maxNumber, customer) => {
+        const customerNumber = Number(customer.id.replace('CUS-', ''))
+
+        return Number.isNaN(customerNumber)
+          ? maxNumber
+          : Math.max(maxNumber, customerNumber)
+      }, 0)
       const nextCustomer: Customer = {
-        id: `CUS-${String(nextCustomerNumber).padStart(3, '0')}`,
+        id: `CUS-${String(maxCustomerNumber + 1).padStart(3, '0')}`,
         ...customerInput,
       }
 

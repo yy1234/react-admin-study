@@ -34,7 +34,7 @@ import {
   - @hookform/resolvers：把 zod 校验接进表单
  * **/
 type CustomerFormProps = {
-  onAddCustomer: (customer: NewCustomerInput) => void
+  onAddCustomer: (customer: NewCustomerInput) => Promise<void> | void
 }
 //负责描述字段规则
 const customerFormSchema = z.object({
@@ -55,6 +55,7 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
     handleSubmit,
     control,
     reset,
+    setError,
     formState: { errors, isValid, isSubmitting },
   } = useForm<CustomerFormInput, unknown, CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
@@ -66,8 +67,22 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
     mode: 'onChange',
   })
 
-  function handleValidSubmit(values: CustomerFormValues) {
-    onAddCustomer(values)
+  async function handleValidSubmit(values: CustomerFormValues) {
+    try {
+      await onAddCustomer(values)
+    } catch (error) {
+      // 后端返回的业务错误，通常用 setError 塞回具体字段。
+      setError(
+        'email',
+        {
+          type: 'server',
+          message:
+            error instanceof Error ? error.message : 'Failed to add customer.',
+        },
+        { shouldFocus: true },
+      )
+      return
+    }
 
     reset()
     setIsDialogOpen(false)
@@ -148,12 +163,13 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
             <Button
               type="button"
               variant="outline"
+              disabled={isSubmitting}
               onClick={() => setIsDialogOpen(false)}
             >
               Cancel
             </Button>
             <Button type="submit" disabled={!isValid || isSubmitting}>
-              Add
+              {isSubmitting ? 'Adding...' : 'Add'}
             </Button>
           </DialogFooter>
         </form>
