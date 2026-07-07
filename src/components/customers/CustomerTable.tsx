@@ -1,5 +1,6 @@
 import type { Customer, CustomerSortDirection, CustomerSortField } from './types'
 import { CustomerDeleteDialog } from './CustomerDeleteDialog'
+import { CustomerForm } from './CustomerForm'
 import { CustomerPagination } from './CustomerPagination'
 import { Badge } from '../ui/Badge'
 import { Button } from '@/components/shadcn-ui/button'
@@ -20,6 +21,10 @@ type CustomerTableProps = {
   totalPageCount: number
   onPageChange: (page: number) => void
   onSortChange: (sortField: CustomerSortField) => void
+  onUpdateCustomer: (
+    customerId: string,
+    customerInput: Pick<Customer, 'name' | 'email' | 'status'>,
+  ) => Promise<void> | void
   onDeleteCustomer: (customerId: string) => void
   onToggleCustomerStatus: (customerId: string) => void
 }
@@ -52,6 +57,7 @@ export function CustomerTable({
   totalPageCount,
   onPageChange,
   onSortChange,
+  onUpdateCustomer,
   onDeleteCustomer,
   onToggleCustomerStatus,
 }: CustomerTableProps) {
@@ -128,6 +134,15 @@ export function CustomerTable({
                   >
                     {customer.status === 'active' ? 'Deactivate' : 'Activate'}
                   </Button>
+                  <CustomerForm
+                    customer={customer}
+                    triggerLabel="Edit"
+                    triggerSize="sm"
+                    triggerVariant="outline"
+                    onSaveCustomer={(customerInput) =>
+                      onUpdateCustomer(customer.id, customerInput)
+                    }
+                  />
                   <CustomerDeleteDialog
                     customer={customer}
                     onDeleteCustomer={onDeleteCustomer}

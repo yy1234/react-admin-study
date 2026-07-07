@@ -428,15 +428,20 @@ const customerColumns = [
 
 ## 第六阶段：表单进阶
 
+当前状态：已完成。
+
 这个阶段把 `CustomerForm` 从手写 `useState` 表单升级成：
 
 ```txt
-react-hook-form + zod + @hookform/resolvers + shadcn Field
+react-hook-form + zod + @hookform/resolvers + shadcn Field + 新增/编辑复用
 ```
 
 主要文件：
 
 - `src/components/customers/CustomerForm.tsx`
+- `src/components/customers/CustomerSearch.tsx`
+- `src/components/customers/CustomerTable.tsx`
+- `src/components/customers/useCustomers.ts`
 - `src/components/shadcn-ui/field.tsx`
 - `src/components/shadcn-ui/label.tsx`
 - `src/components/shadcn-ui/separator.tsx`
@@ -638,7 +643,7 @@ zod 校验失败
   -> handleSubmit 先拦截表单默认提交
   -> zodResolver 做字段校验
   -> 校验通过后调用 handleValidSubmit
-  -> handleValidSubmit 等待 onAddCustomer
+  -> handleValidSubmit 等待 onSaveCustomer
   -> 成功：reset + 关闭弹窗
   -> 失败：setError 把服务端错误显示到字段上
 ```
@@ -749,7 +754,156 @@ email 字段出错了
 - 搜索、筛选、排序、分页
 - 模拟后端重复邮箱检查
 
-这个边界很重要：表单组件不要知道客户列表内部怎么维护，它只调用 `onAddCustomer(values)`。
+这个边界很重要：表单组件不要知道客户列表内部怎么维护，它只调用 `onSaveCustomer(values)`。
+
+## 第六阶段：新增和编辑复用同一个表单
+
+后台项目里很常见的一种写法是：
+
+```txt
+同一套表单
+  -> 新增数据
+  -> 编辑数据
+```
+
+如果新增写一个 `AddCustomerForm`，编辑再写一个 `EditCustomerForm`，字段、校验、错误显示、提交 loading 都会重复。
+
+所以当前项目把 `CustomerForm` 做成复用组件：
+
+```tsx
+type CustomerFormProps = {
+  customer?: Customer
+  onSaveCustomer: (customer: NewCustomerInput) => Promise<void> | void
+}
+```
+
+这里的关键是：
+
+```txt
+customer?: Customer
+```
+
+`?` 表示这个 prop 可传可不传：
+
+- 不传 `customer`：新增模式
+- 传入 `customer`：编辑模式
+
+代码里用它判断当前模式：
+
+```ts
+const isEditing = customer !== undefined
+```
+
+然后根据模式决定弹窗文案：
+
+```ts
+const dialogTitle = isEditing ? 'Edit customer' : 'Add customer'
+const submitLabel = isEditing ? 'Save' : 'Add'
+```
+
+### 新增入口
+
+新增客户时，顶部按钮这样使用：
+
+```tsx
+<CustomerForm
+  triggerClassName="mb-6"
+  onSaveCustomer={addCustomer}
+/>
+```
+
+它没有传 `customer`，所以是新增模式。
+
+### 编辑入口
+
+表格行里这样使用：
+
+```tsx
+<CustomerForm
+  customer={customer}
+  triggerLabel="Edit"
+  triggerSize="sm"
+  triggerVariant="outline"
+  onSaveCustomer={(customerInput) =>
+    onUpdateCustomer(customer.id, customerInput)
+  }
+/>
+```
+
+它传了当前行的 `customer`，所以是编辑模式。
+
+这里的回调值得看：
+
+```tsx
+onSaveCustomer={(customerInput) =>
+  onUpdateCustomer(customer.id, customerInput)
+}
+```
+
+表单自己只知道字段值：
+
+```txt
+name
+email
+status
+```
+
+但编辑某一行时，还需要知道要更新哪条数据，所以表格组件把 `customer.id` 一起带上。
+
+### 为什么打开弹窗时要 reset
+
+编辑模式里，表单默认值来自当前客户：
+
+```ts
+reset({
+  name: customer?.name ?? '',
+  email: customer?.email ?? '',
+  status: customer?.status ?? 'active',
+})
+```
+
+它放在 `useEffect` 里：
+
+```ts
+useEffect(() => {
+  if (!isDialogOpen) {
+    return
+  }
+
+  reset(...)
+}, [...])
+```
+
+原因是：同一个表单组件可能先编辑 A 客户，再编辑 B 客户。打开弹窗时重置一次，可以避免残留上一次输入。
+
+### 新增和编辑的数据层
+
+`useCustomers` 现在有两个保存函数：
+
+```ts
+addCustomer(customerInput)
+updateCustomer(customerId, customerInput)
+```
+
+它们都做了三件事：
+
+- 模拟接口耗时
+- 检查邮箱是否重复
+- 成功后更新客户列表
+
+区别是：
+
+- 新增：生成一个新 id，插入列表顶部
+- 编辑：根据 `customerId` 找到原客户，再合并新字段
+
+编辑时检查重复邮箱要排除自己：
+
+```ts
+customer.id !== customerId &&
+customer.email.toLowerCase() === normalizedEmail
+```
+
+否则你不改邮箱，只改名字，也会被误判成“邮箱重复”。
 
 ## 当前项目能力
 
@@ -777,37 +931,36 @@ email 字段出错了
 - 表单状态管理
 - zod 校验
 - Controller 接入复杂组件
+- handleSubmit 提交流程
+- isSubmitting 提交中状态
+- setError 服务端错误回填
+- 新增和编辑复用同一个表单
 
 ## 还没完成的后续阶段
 
 接下来建议继续：
 
-1. 表单进阶收尾
-   - 提交中 loading
-   - 服务端错误
-   - 编辑客户表单
-
-2. 数据请求
+1. 数据请求
    - fetch 或 axios
    - loading/error/empty
    - 列表接口
    - 新增/删除/更新接口
 
-3. TanStack Query
+2. TanStack Query
    - query
    - mutation
    - 缓存
    - 乐观更新
    - 失败回滚
 
-4. React Router
+3. React Router
    - 列表页
    - 详情页
    - 编辑页
    - URL 参数
    - query 参数
 
-5. TanStack Table
+4. TanStack Table
    - 列定义
    - 排序
    - 筛选
@@ -815,13 +968,13 @@ email 字段出错了
    - 行选择
    - 批量操作
 
-6. 登录和权限
+5. 登录和权限
    - token
    - 路由守卫
    - 用户信息
    - 按权限显示菜单和按钮
 
-7. 工程化
+6. 工程化
    - API 分层
    - 类型分层
    - 环境变量

@@ -23,6 +23,7 @@ export function CustomerSearch() {
     changeSort,
     changePage,
     addCustomer,
+    updateCustomer,
     deleteCustomer,
     toggleCustomerStatus,
   } = useCustomers()
@@ -33,7 +34,10 @@ export function CustomerSearch() {
 
   return (
     <Card className="mt-6">
-      <CustomerForm onAddCustomer={addCustomer} />
+      <CustomerForm
+        triggerClassName="mb-6"
+        onSaveCustomer={addCustomer}
+      />
 
       <CustomerToolbar
         searchText={searchText}
@@ -54,6 +58,7 @@ export function CustomerSearch() {
         totalPageCount={totalPageCount}
         onPageChange={changePage}
         onSortChange={changeSort}
+        onUpdateCustomer={updateCustomer}
         onDeleteCustomer={deleteCustomer}
         onToggleCustomerStatus={toggleCustomerStatus}
       />

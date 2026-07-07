@@ -8,6 +8,8 @@ import type {
   NewCustomerInput,
 } from './types'
 
+const submitDelay = 600
+
 export function useCustomers() {
   const [customerList, setCustomerList] = useState<Customer[]>(initialCustomers)
   const [searchText, setSearchText] = useState('')
@@ -87,7 +89,7 @@ export function useCustomers() {
 
   async function addCustomer(customerInput: NewCustomerInput) {
     // 模拟真实接口耗时，这样表单里的 isSubmitting 状态能被看见。
-    await new Promise((resolve) => window.setTimeout(resolve, 600))
+    await new Promise((resolve) => window.setTimeout(resolve, submitDelay))
 
     const normalizedEmail = customerInput.email.toLowerCase()
     const hasDuplicateEmail = customerList.some(
@@ -115,6 +117,35 @@ export function useCustomers() {
       return [nextCustomer, ...currentCustomers]
     })
     setCurrentPage(1)
+  }
+
+  async function updateCustomer(customerId: string, customerInput: NewCustomerInput) {
+    // 编辑和新增共用同一套表单，所以这里也模拟一次接口耗时。
+    await new Promise((resolve) => window.setTimeout(resolve, submitDelay))
+
+    const normalizedEmail = customerInput.email.toLowerCase()
+    const hasDuplicateEmail = customerList.some(
+      (customer) =>
+        customer.id !== customerId &&
+        customer.email.toLowerCase() === normalizedEmail,
+    )
+
+    if (hasDuplicateEmail) {
+      throw new Error('This email already exists.')
+    }
+
+    setCustomerList((currentCustomers) =>
+      currentCustomers.map((customer) => {
+        if (customer.id !== customerId) {
+          return customer
+        }
+
+        return {
+          ...customer,
+          ...customerInput,
+        }
+      }),
+    )
   }
 
   function deleteCustomer(customerId: string) {
@@ -156,6 +187,7 @@ export function useCustomers() {
     changeSort,
     changePage,
     addCustomer,
+    updateCustomer,
     deleteCustomer,
     toggleCustomerStatus,
   }

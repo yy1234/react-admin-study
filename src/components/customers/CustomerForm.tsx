@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState, type ComponentProps } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
-import type { NewCustomerInput } from './types'
+import type { Customer, NewCustomerInput } from './types'
 import { Button } from '@/components/shadcn-ui/button'
 import {
   Dialog,
@@ -34,7 +34,12 @@ import {
   - @hookform/resolvers：把 zod 校验接进表单
  * **/
 type CustomerFormProps = {
-  onAddCustomer: (customer: NewCustomerInput) => Promise<void> | void
+  customer?: Customer
+  triggerLabel?: string
+  triggerClassName?: string
+  triggerSize?: ComponentProps<typeof Button>['size']
+  triggerVariant?: ComponentProps<typeof Button>['variant']
+  onSaveCustomer: (customer: NewCustomerInput) => Promise<void> | void
 }
 //负责描述字段规则
 const customerFormSchema = z.object({
@@ -46,9 +51,29 @@ const customerFormSchema = z.object({
 type CustomerFormInput = z.input<typeof customerFormSchema>
 type CustomerFormValues = z.output<typeof customerFormSchema>
 
-// 接收父组件传入的 props，并从中解构出 onAddCustomer 回调函数。
-export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
+// 同一个表单组件同时支持新增和编辑：有 customer 就是编辑，没有 customer 就是新增。
+export function CustomerForm({
+  customer,
+  triggerLabel,
+  triggerClassName,
+  triggerSize = 'default',
+  triggerVariant = 'default',
+  onSaveCustomer,
+}: CustomerFormProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const isEditing = customer !== undefined
+  const dialogTitle = isEditing ? 'Edit customer' : 'Add customer'
+  const dialogDescription = isEditing
+    ? 'Update this customer profile in the local list.'
+    : 'Create a customer in the local list.'
+  const submitLabel = isEditing ? 'Save' : 'Add'
+  const submittingLabel = isEditing ? 'Saving...' : 'Adding...'
+  const customerNameInputId = isEditing
+    ? `customer-name-${customer.id}`
+    : 'customer-name'
+  const customerEmailInputId = isEditing
+    ? `customer-email-${customer.id}`
+    : 'customer-email'
 
   const {
     register,
@@ -60,16 +85,35 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
   } = useForm<CustomerFormInput, unknown, CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
     defaultValues: {
-      name: '',
-      email: '',
-      status: 'active',
+      name: customer?.name ?? '',
+      email: customer?.email ?? '',
+      status: customer?.status ?? 'active',
     },
     mode: 'onChange',
   })
 
+  useEffect(() => {
+    if (!isDialogOpen) {
+      return
+    }
+
+    // 打开弹窗时重置默认值，避免编辑不同客户时残留上一次的输入。
+    reset({
+      name: customer?.name ?? '',
+      email: customer?.email ?? '',
+      status: customer?.status ?? 'active',
+    })
+  }, [
+    customer?.email,
+    customer?.name,
+    customer?.status,
+    isDialogOpen,
+    reset,
+  ])
+
   async function handleValidSubmit(values: CustomerFormValues) {
     try {
-      await onAddCustomer(values)
+      await onSaveCustomer(values)
     } catch (error) {
       // 后端返回的业务错误，通常用 setError 塞回具体字段。
       setError(
@@ -91,7 +135,13 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
-        <Button className="mb-6">Add customer</Button>
+        <Button
+          className={triggerClassName}
+          size={triggerSize}
+          variant={triggerVariant}
+        >
+          {triggerLabel ?? (isEditing ? 'Edit' : 'Add customer')}
+        </Button>
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-xl">
@@ -100,17 +150,15 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
           onSubmit={handleSubmit(handleValidSubmit)}
         >
           <DialogHeader>
-            <DialogTitle>Add customer</DialogTitle>
-            <DialogDescription>
-              Create a customer in the local list.
-            </DialogDescription>
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
 
           <FieldGroup className="grid gap-3 md:grid-cols-[1fr_1fr_140px]">
             <Field data-invalid={Boolean(errors.name)}>
-              <FieldLabel htmlFor="customer-name">Name</FieldLabel>
+              <FieldLabel htmlFor={customerNameInputId}>Name</FieldLabel>
               <Input
-                id="customer-name"
+                id={customerNameInputId}
                 aria-invalid={Boolean(errors.name)}
                 placeholder="Customer name"
                 {...register('name')}
@@ -119,9 +167,9 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
             </Field>
 
             <Field data-invalid={Boolean(errors.email)}>
-              <FieldLabel htmlFor="customer-email">Email</FieldLabel>
+              <FieldLabel htmlFor={customerEmailInputId}>Email</FieldLabel>
               <Input
-                id="customer-email"
+                id={customerEmailInputId}
                 aria-invalid={Boolean(errors.email)}
                 placeholder="Email"
                 type="email"
@@ -169,7 +217,7 @@ export function CustomerForm({ onAddCustomer }: CustomerFormProps) {
               Cancel
             </Button>
             <Button type="submit" disabled={!isValid || isSubmitting}>
-              {isSubmitting ? 'Adding...' : 'Add'}
+              {isSubmitting ? submittingLabel : submitLabel}
             </Button>
           </DialogFooter>
         </form>
