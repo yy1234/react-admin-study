@@ -4,6 +4,7 @@ import { CustomerForm } from './CustomerForm'
 import { CustomerPagination } from './CustomerPagination'
 import { Badge } from '../ui/Badge'
 import { Button } from '@/components/shadcn-ui/button'
+import { toast } from 'sonner'
 import {
   Table,
   TableBody,
@@ -15,6 +16,7 @@ import {
 
 type CustomerTableProps = {
   customers: Customer[]
+  isLoading: boolean
   sortField: CustomerSortField | null
   sortDirection: CustomerSortDirection
   currentPage: number
@@ -51,6 +53,7 @@ const customerColumns: CustomerColumn[] = [
 
 export function CustomerTable({
   customers,
+  isLoading,
   sortField,
   sortDirection,
   currentPage,
@@ -95,6 +98,19 @@ export function CustomerTable({
     return renderSortableHead(column.label, column.sortField)
   }
 
+  async function handleToggleCustomerStatus(customer: Customer) {
+    try {
+      await onToggleCustomerStatus(customer.id)
+    } catch (error) {
+      toast.error('Status update failed', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Please try updating this customer again.',
+      })
+    }
+  }
+
   return (
     <div className="mt-5 overflow-hidden rounded-md border border-border bg-background">
       <Table>
@@ -130,7 +146,7 @@ export function CustomerTable({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => onToggleCustomerStatus(customer.id)}
+                    onClick={() => void handleToggleCustomerStatus(customer)}
                   >
                     {customer.status === 'active' ? 'Deactivate' : 'Activate'}
                   </Button>
@@ -152,7 +168,7 @@ export function CustomerTable({
             </TableRow>
           ))}
 
-          {customers.length === 0 ? (
+          {!isLoading && customers.length === 0 ? (
             <TableRow>
               <TableCell
                 className="h-24 text-center text-muted-foreground"

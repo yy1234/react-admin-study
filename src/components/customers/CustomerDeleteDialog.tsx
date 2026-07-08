@@ -15,18 +15,27 @@ import { toast } from 'sonner'
 
 type CustomerDeleteDialogProps = {
   customer: Customer
-  onDeleteCustomer: (customerId: string) => void
+  onDeleteCustomer: (customerId: string) => Promise<void> | void
 }
 
 export function CustomerDeleteDialog({
   customer,
   onDeleteCustomer,
 }: CustomerDeleteDialogProps) {
-  function handleDeleteCustomer() {
-    onDeleteCustomer(customer.id)
-    toast.success('Customer deleted', {
-      description: `${customer.name} has been removed from the list.`,
-    })
+  async function handleDeleteCustomer() {
+    try {
+      await onDeleteCustomer(customer.id)
+      toast.success('Customer deleted', {
+        description: `${customer.name} has been removed from the list.`,
+      })
+    } catch (error) {
+      toast.error('Delete failed', {
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Please try deleting this customer again.',
+      })
+    }
   }
 
   return (
@@ -50,7 +59,7 @@ export function CustomerDeleteDialog({
           {/* 用户确认后，才真正调用父组件传进来的删除函数。 */}
           <AlertDialogAction
             variant="destructive"
-            onClick={handleDeleteCustomer}
+            onClick={() => void handleDeleteCustomer()}
           >
             Delete
           </AlertDialogAction>

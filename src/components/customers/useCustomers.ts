@@ -1,5 +1,11 @@
-import { useMemo, useState } from 'react'
-import { customers as initialCustomers } from './customerData'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createCustomer,
+  deleteCustomer as deleteCustomerRequest,
+  listCustomers,
+  toggleCustomerStatus as toggleCustomerStatusRequest,
+  updateCustomer as updateCustomerRequest,
+} from './customerApi'
 import type {
   Customer,
   CustomerSortDirection,
@@ -8,20 +14,67 @@ import type {
   NewCustomerInput,
 } from './types'
 
-const submitDelay = 600
-
 export function useCustomers() {
-  const [customerList, setCustomerList] = useState<Customer[]>(initialCustomers)
+  const isMountedRef = useRef(true)
+  const [customerList, setCustomerList] = useState<Customer[]>([])
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>('all')
   const [sortField, setSortField] = useState<CustomerSortField | null>(null)
   const [sortDirection, setSortDirection] =
     useState<CustomerSortDirection>('asc')
   const [currentPage, setCurrentPage] = useState(1)
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const hasActiveFilters = searchText !== '' || statusFilter !== 'all'
   const totalCustomerCount = customerList.length
   const pageSize = 2
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const loadCustomers = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return
+    }
+
+    setIsLoading(true)
+    setErrorMessage(null)
+
+    try {
+      const customers = await listCustomers()
+
+      if (!isMountedRef.current) {
+        return
+      }
+
+      setCustomerList(customers)
+      setCurrentPage(1)
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return
+      }
+
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to load customers.',
+      )
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadCustomers()
+    })
+  }, [loadCustomers])
 
   const filteredCustomers = useMemo(() => {
     const keyword = searchText.toLowerCase()
@@ -53,13 +106,14 @@ export function useCustomers() {
   }, [filteredCustomers, sortDirection, sortField])
 
   const totalPageCount = Math.max(1, Math.ceil(sortedCustomers.length / pageSize))
+  const safeCurrentPage = Math.min(currentPage, totalPageCount)
 
   const pagedCustomers = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize
+    const startIndex = (safeCurrentPage - 1) * pageSize
     const endIndex = startIndex + pageSize
 
     return sortedCustomers.slice(startIndex, endIndex)
-  }, [currentPage, pageSize, sortedCustomers])
+  }, [pageSize, safeCurrentPage, sortedCustomers])
 
   function clearFilters() {
     setSearchText('')
@@ -88,31 +142,13 @@ export function useCustomers() {
   }
 
   async function addCustomer(customerInput: NewCustomerInput) {
-    // 模拟真实接口耗时，这样表单里的 isSubmitting 状态能被看见。
-    await new Promise((resolve) => window.setTimeout(resolve, submitDelay))
+    const nextCustomer = await createCustomer(customerInput)
 
-    const normalizedEmail = customerInput.email.toLowerCase()
-    const hasDuplicateEmail = customerList.some(
-      (customer) => customer.email.toLowerCase() === normalizedEmail,
-    )
-
-    if (hasDuplicateEmail) {
-      throw new Error('This email already exists.')
+    if (!isMountedRef.current) {
+      return
     }
 
     setCustomerList((currentCustomers) => {
-      const maxCustomerNumber = currentCustomers.reduce((maxNumber, customer) => {
-        const customerNumber = Number(customer.id.replace('CUS-', ''))
-
-        return Number.isNaN(customerNumber)
-          ? maxNumber
-          : Math.max(maxNumber, customerNumber)
-      }, 0)
-      const nextCustomer: Customer = {
-        id: `CUS-${String(maxCustomerNumber + 1).padStart(3, '0')}`,
-        ...customerInput,
-      }
-
       // 返回一个新数组，而不是修改 currentCustomers 原数组。
       return [nextCustomer, ...currentCustomers]
     })
@@ -120,18 +156,10 @@ export function useCustomers() {
   }
 
   async function updateCustomer(customerId: string, customerInput: NewCustomerInput) {
-    // 编辑和新增共用同一套表单，所以这里也模拟一次接口耗时。
-    await new Promise((resolve) => window.setTimeout(resolve, submitDelay))
+    const updatedCustomer = await updateCustomerRequest(customerId, customerInput)
 
-    const normalizedEmail = customerInput.email.toLowerCase()
-    const hasDuplicateEmail = customerList.some(
-      (customer) =>
-        customer.id !== customerId &&
-        customer.email.toLowerCase() === normalizedEmail,
-    )
-
-    if (hasDuplicateEmail) {
-      throw new Error('This email already exists.')
+    if (!isMountedRef.current) {
+      return
     }
 
     setCustomerList((currentCustomers) =>
@@ -141,20 +169,31 @@ export function useCustomers() {
         }
 
         return {
-          ...customer,
-          ...customerInput,
+          ...updatedCustomer,
         }
       }),
     )
   }
 
-  function deleteCustomer(customerId: string) {
+  async function deleteCustomer(customerId: string) {
+    await deleteCustomerRequest(customerId)
+
+    if (!isMountedRef.current) {
+      return
+    }
+
     setCustomerList((currentCustomers) =>
       currentCustomers.filter((customer) => customer.id !== customerId),
     )
   }
 
-  function toggleCustomerStatus(customerId: string) {
+  async function toggleCustomerStatus(customerId: string) {
+    const updatedCustomer = await toggleCustomerStatusRequest(customerId)
+
+    if (!isMountedRef.current) {
+      return
+    }
+
     setCustomerList((currentCustomers) =>
       currentCustomers.map((customer) => {
         if (customer.id !== customerId) {
@@ -162,8 +201,7 @@ export function useCustomers() {
         }
 
         return {
-          ...customer,
-          status: customer.status === 'active' ? 'inactive' : 'active',
+          ...updatedCustomer,
         }
       }),
     )
@@ -178,14 +216,17 @@ export function useCustomers() {
     filteredCustomerCount: sortedCustomers.length,
     sortField,
     sortDirection,
-    currentPage,
+    currentPage: safeCurrentPage,
     pageSize,
     totalPageCount,
+    isLoading,
+    errorMessage,
     setSearchText,
     setStatusFilter,
     clearFilters,
     changeSort,
     changePage,
+    loadCustomers,
     addCustomer,
     updateCustomer,
     deleteCustomer,
