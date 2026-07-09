@@ -1,4 +1,9 @@
-import type { Customer, CustomerSortDirection, CustomerSortField } from './types'
+import type {
+  Customer,
+  CustomerSortDirection,
+  CustomerSortField,
+  NewCustomerInput,
+} from './types'
 import { CustomerDeleteDialog } from './CustomerDeleteDialog'
 import { CustomerForm } from './CustomerForm'
 import { CustomerPagination } from './CustomerPagination'
@@ -21,11 +26,15 @@ type CustomerTableProps = {
   sortDirection: CustomerSortDirection
   currentPage: number
   totalPageCount: number
+  isCustomerActionPending: boolean
+  updatingCustomerId: string | null
+  deletingCustomerId: string | null
+  togglingCustomerId: string | null
   onPageChange: (page: number) => void
   onSortChange: (sortField: CustomerSortField) => void
   onUpdateCustomer: (
     customerId: string,
-    customerInput: Pick<Customer, 'name' | 'email' | 'status'>,
+    customerInput: NewCustomerInput,
   ) => Promise<void> | void
   onDeleteCustomer: (customerId: string) => void
   onToggleCustomerStatus: (customerId: string) => void
@@ -58,6 +67,10 @@ export function CustomerTable({
   sortDirection,
   currentPage,
   totalPageCount,
+  isCustomerActionPending,
+  updatingCustomerId,
+  deletingCustomerId,
+  togglingCustomerId,
   onPageChange,
   onSortChange,
   onUpdateCustomer,
@@ -125,48 +138,62 @@ export function CustomerTable({
         </TableHeader>
 
         <TableBody>
-          {customers.map((customer) => (
-            <TableRow key={customer.id}>
-              <TableCell className="font-medium text-foreground">
-                {customer.id}
-              </TableCell>
-              <TableCell>{customer.name}</TableCell>
-              <TableCell className="text-muted-foreground">
-                {customer.email}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={customer.status === 'active' ? 'success' : 'muted'}
-                >
-                  {customer.status}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void handleToggleCustomerStatus(customer)}
+          {customers.map((customer) => {
+            const isUpdating = updatingCustomerId === customer.id
+            const isDeleting = deletingCustomerId === customer.id
+            const isToggling = togglingCustomerId === customer.id
+
+            return (
+              <TableRow key={customer.id}>
+                <TableCell className="font-medium text-foreground">
+                  {customer.id}
+                </TableCell>
+                <TableCell>{customer.name}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {customer.email}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={customer.status === 'active' ? 'success' : 'muted'}
                   >
-                    {customer.status === 'active' ? 'Deactivate' : 'Activate'}
-                  </Button>
-                  <CustomerForm
-                    customer={customer}
-                    triggerLabel="Edit"
-                    triggerSize="sm"
-                    triggerVariant="outline"
-                    onSaveCustomer={(customerInput) =>
-                      onUpdateCustomer(customer.id, customerInput)
-                    }
-                  />
-                  <CustomerDeleteDialog
-                    customer={customer}
-                    onDeleteCustomer={onDeleteCustomer}
-                  />
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                    {customer.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      disabled={isCustomerActionPending}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void handleToggleCustomerStatus(customer)}
+                    >
+                      {isToggling
+                        ? 'Updating...'
+                        : customer.status === 'active'
+                          ? 'Deactivate'
+                          : 'Activate'}
+                    </Button>
+                    <CustomerForm
+                      customer={customer}
+                      triggerDisabled={isCustomerActionPending}
+                      triggerLabel={isUpdating ? 'Saving...' : 'Edit'}
+                      triggerSize="sm"
+                      triggerVariant="outline"
+                      onSaveCustomer={(customerInput) =>
+                        onUpdateCustomer(customer.id, customerInput)
+                      }
+                    />
+                    <CustomerDeleteDialog
+                      customer={customer}
+                      isDeleting={isDeleting}
+                      triggerDisabled={isCustomerActionPending}
+                      onDeleteCustomer={onDeleteCustomer}
+                    />
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
 
           {!isLoading && customers.length === 0 ? (
             <TableRow>

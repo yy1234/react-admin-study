@@ -37,6 +37,7 @@ type CustomerFormProps = {
   customer?: Customer
   triggerLabel?: string
   triggerClassName?: string
+  triggerDisabled?: boolean
   triggerSize?: ComponentProps<typeof Button>['size']
   triggerVariant?: ComponentProps<typeof Button>['variant']
   onSaveCustomer: (customer: NewCustomerInput) => Promise<void> | void
@@ -56,6 +57,7 @@ export function CustomerForm({
   customer,
   triggerLabel,
   triggerClassName,
+  triggerDisabled = false,
   triggerSize = 'default',
   triggerVariant = 'default',
   onSaveCustomer,
@@ -137,6 +139,7 @@ export function CustomerForm({
       <DialogTrigger asChild>
         <Button
           className={triggerClassName}
+          disabled={triggerDisabled}
           size={triggerSize}
           variant={triggerVariant}
         >

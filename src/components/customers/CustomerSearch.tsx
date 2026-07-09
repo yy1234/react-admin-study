@@ -19,6 +19,10 @@ export function CustomerSearch() {
     pageSize,
     totalPageCount,
     isLoading,
+    isCustomerActionPending,
+    updatingCustomerId,
+    deletingCustomerId,
+    togglingCustomerId,
     errorMessage,
     setSearchText,
     setStatusFilter,
@@ -80,6 +84,10 @@ export function CustomerSearch() {
         sortDirection={sortDirection}
         currentPage={currentPage}
         totalPageCount={totalPageCount}
+        isCustomerActionPending={isCustomerActionPending}
+        updatingCustomerId={updatingCustomerId}
+        deletingCustomerId={deletingCustomerId}
+        togglingCustomerId={togglingCustomerId}
         onPageChange={changePage}
         onSortChange={changeSort}
         onUpdateCustomer={updateCustomer}

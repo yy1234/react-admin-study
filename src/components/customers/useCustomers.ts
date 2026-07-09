@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createCustomer,
   deleteCustomer as deleteCustomerRequest,
@@ -14,67 +15,77 @@ import type {
   NewCustomerInput,
 } from './types'
 
+const customersQueryKey = ['customers'] as const
+const emptyCustomers: Customer[] = []
+
 export function useCustomers() {
-  const isMountedRef = useRef(true)
-  const [customerList, setCustomerList] = useState<Customer[]>([])
+  const queryClient = useQueryClient()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>('all')
   const [sortField, setSortField] = useState<CustomerSortField | null>(null)
   const [sortDirection, setSortDirection] =
     useState<CustomerSortDirection>('asc')
   const [currentPage, setCurrentPage] = useState(1)
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  const customersQuery = useQuery({
+    queryKey: customersQueryKey,
+    queryFn: listCustomers,
+  })
+
+  const addCustomerMutation = useMutation({
+    mutationFn: createCustomer,
+    onSuccess: async () => {
+      setCurrentPage(1)
+      await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+    },
+  })
+
+  const updateCustomerMutation = useMutation({
+    mutationFn: ({
+      customerId,
+      customerInput,
+    }: {
+      customerId: string
+      customerInput: NewCustomerInput
+    }) => updateCustomerRequest(customerId, customerInput),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+    },
+  })
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: deleteCustomerRequest,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+    },
+  })
+
+  const toggleCustomerStatusMutation = useMutation({
+    mutationFn: toggleCustomerStatusRequest,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+    },
+  })
+
+  const customerList = customersQuery.data ?? emptyCustomers
   const hasActiveFilters = searchText !== '' || statusFilter !== 'all'
   const totalCustomerCount = customerList.length
   const pageSize = 2
-
-  useEffect(() => {
-    isMountedRef.current = true
-
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [])
-
-  const loadCustomers = useCallback(async () => {
-    if (!isMountedRef.current) {
-      return
-    }
-
-    setIsLoading(true)
-    setErrorMessage(null)
-
-    try {
-      const customers = await listCustomers()
-
-      if (!isMountedRef.current) {
-        return
-      }
-
-      setCustomerList(customers)
-      setCurrentPage(1)
-    } catch (error) {
-      if (!isMountedRef.current) {
-        return
-      }
-
-      setErrorMessage(
-        error instanceof Error ? error.message : 'Failed to load customers.',
-      )
-    } finally {
-      if (isMountedRef.current) {
-        setIsLoading(false)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadCustomers()
-    })
-  }, [loadCustomers])
+  const updatingCustomerId = updateCustomerMutation.isPending
+    ? updateCustomerMutation.variables?.customerId ?? null
+    : null
+  const deletingCustomerId = deleteCustomerMutation.isPending
+    ? deleteCustomerMutation.variables
+    : null
+  const togglingCustomerId = toggleCustomerStatusMutation.isPending
+    ? toggleCustomerStatusMutation.variables
+    : null
+  const isCustomerActionPending =
+    updateCustomerMutation.isPending ||
+    deleteCustomerMutation.isPending ||
+    toggleCustomerStatusMutation.isPending
+  const errorMessage =
+    customersQuery.error instanceof Error ? customersQuery.error.message : null
 
   const filteredCustomers = useMemo(() => {
     const keyword = searchText.toLowerCase()
@@ -141,70 +152,27 @@ export function useCustomers() {
     setCurrentPage(safePage)
   }
 
-  async function addCustomer(customerInput: NewCustomerInput) {
-    const nextCustomer = await createCustomer(customerInput)
-
-    if (!isMountedRef.current) {
-      return
-    }
-
-    setCustomerList((currentCustomers) => {
-      // 返回一个新数组，而不是修改 currentCustomers 原数组。
-      return [nextCustomer, ...currentCustomers]
-    })
-    setCurrentPage(1)
+  async function loadCustomers() {
+    await customersQuery.refetch()
   }
 
-  async function updateCustomer(customerId: string, customerInput: NewCustomerInput) {
-    const updatedCustomer = await updateCustomerRequest(customerId, customerInput)
+  async function addCustomer(customerInput: NewCustomerInput) {
+    await addCustomerMutation.mutateAsync(customerInput)
+  }
 
-    if (!isMountedRef.current) {
-      return
-    }
-
-    setCustomerList((currentCustomers) =>
-      currentCustomers.map((customer) => {
-        if (customer.id !== customerId) {
-          return customer
-        }
-
-        return {
-          ...updatedCustomer,
-        }
-      }),
-    )
+  async function updateCustomer(
+    customerId: string,
+    customerInput: NewCustomerInput,
+  ) {
+    await updateCustomerMutation.mutateAsync({ customerId, customerInput })
   }
 
   async function deleteCustomer(customerId: string) {
-    await deleteCustomerRequest(customerId)
-
-    if (!isMountedRef.current) {
-      return
-    }
-
-    setCustomerList((currentCustomers) =>
-      currentCustomers.filter((customer) => customer.id !== customerId),
-    )
+    await deleteCustomerMutation.mutateAsync(customerId)
   }
 
   async function toggleCustomerStatus(customerId: string) {
-    const updatedCustomer = await toggleCustomerStatusRequest(customerId)
-
-    if (!isMountedRef.current) {
-      return
-    }
-
-    setCustomerList((currentCustomers) =>
-      currentCustomers.map((customer) => {
-        if (customer.id !== customerId) {
-          return customer
-        }
-
-        return {
-          ...updatedCustomer,
-        }
-      }),
-    )
+    await toggleCustomerStatusMutation.mutateAsync(customerId)
   }
 
   return {
@@ -219,7 +187,11 @@ export function useCustomers() {
     currentPage: safeCurrentPage,
     pageSize,
     totalPageCount,
-    isLoading,
+    isLoading: customersQuery.isPending || customersQuery.isFetching,
+    isCustomerActionPending,
+    updatingCustomerId,
+    deletingCustomerId,
+    togglingCustomerId,
     errorMessage,
     setSearchText,
     setStatusFilter,

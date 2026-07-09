@@ -15,11 +15,15 @@ import { toast } from 'sonner'
 
 type CustomerDeleteDialogProps = {
   customer: Customer
+  isDeleting?: boolean
+  triggerDisabled?: boolean
   onDeleteCustomer: (customerId: string) => Promise<void> | void
 }
 
 export function CustomerDeleteDialog({
   customer,
+  isDeleting = false,
+  triggerDisabled = false,
   onDeleteCustomer,
 }: CustomerDeleteDialogProps) {
   async function handleDeleteCustomer() {
@@ -41,8 +45,8 @@ export function CustomerDeleteDialog({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="destructive">
-          Delete
+        <Button disabled={triggerDisabled} size="sm" variant="destructive">
+          {isDeleting ? 'Deleting...' : 'Delete'}
         </Button>
       </AlertDialogTrigger>
 
@@ -55,13 +59,14 @@ export function CustomerDeleteDialog({
         </AlertDialogHeader>
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
           {/* 用户确认后，才真正调用父组件传进来的删除函数。 */}
           <AlertDialogAction
+            disabled={isDeleting}
             variant="destructive"
             onClick={() => void handleDeleteCustomer()}
           >
-            Delete
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
