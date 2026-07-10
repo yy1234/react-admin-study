@@ -1,5 +1,10 @@
 import { customers as initialCustomers } from './customerData'
-import type { Customer, NewCustomerInput } from './types'
+import type {
+  Customer,
+  CustomerListParams,
+  CustomerListResult,
+  NewCustomerInput,
+} from './types'
 
 const requestDelay = 600
 
@@ -49,10 +54,54 @@ function findCustomerById(customerId: string) {
   return customer
 }
 
-export async function listCustomers() {
+export async function listCustomers({
+  searchText,
+  statusFilter,
+  sortField,
+  sortDirection,
+  page,
+  pageSize,
+}: CustomerListParams): Promise<CustomerListResult> {
   await waitForRequest()
 
-  return customerRecords.map(cloneCustomer)
+  const keyword = searchText.trim().toLowerCase()
+  const filteredCustomers = customerRecords.filter((customer) => {
+    const matchesKeyword =
+      customer.name.toLowerCase().includes(keyword) ||
+      customer.email.toLowerCase().includes(keyword)
+    const matchesStatus =
+      statusFilter === 'all' || customer.status === statusFilter
+
+    return matchesKeyword && matchesStatus
+  })
+
+  const sortedCustomers =
+    sortField === null
+      ? filteredCustomers
+      : [...filteredCustomers].sort((firstCustomer, secondCustomer) => {
+          const result = firstCustomer[sortField].localeCompare(
+            secondCustomer[sortField],
+          )
+
+          return sortDirection === 'asc' ? result : -result
+        })
+
+  const totalPageCount = Math.max(
+    1,
+    Math.ceil(sortedCustomers.length / pageSize),
+  )
+  const safePage = Math.min(Math.max(page, 1), totalPageCount)
+  const startIndex = (safePage - 1) * pageSize
+  const endIndex = startIndex + pageSize
+
+  return {
+    customers: sortedCustomers.slice(startIndex, endIndex).map(cloneCustomer),
+    totalCustomerCount: customerRecords.length,
+    filteredCustomerCount: sortedCustomers.length,
+    page: safePage,
+    pageSize,
+    totalPageCount,
+  }
 }
 
 export async function createCustomer(customerInput: NewCustomerInput) {

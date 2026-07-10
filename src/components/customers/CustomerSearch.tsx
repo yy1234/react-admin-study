@@ -19,6 +19,7 @@ export function CustomerSearch() {
     pageSize,
     totalPageCount,
     isLoading,
+    isRefreshing,
     isCustomerActionPending,
     updatingCustomerId,
     deletingCustomerId,
@@ -64,6 +65,12 @@ export function CustomerSearch() {
         </div>
       ) : null}
 
+      {isRefreshing ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Refreshing customers...
+        </p>
+      ) : null}
+
       {errorMessage !== null ? (
         <div className="mt-5 flex items-center justify-between gap-4 rounded-md border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{errorMessage}</p>
@@ -79,7 +86,7 @@ export function CustomerSearch() {
 
       <CustomerTable
         customers={filteredCustomers}
-        isLoading={isLoading}
+        isLoading={isLoading || isRefreshing}
         sortField={sortField}
         sortDirection={sortDirection}
         currentPage={currentPage}

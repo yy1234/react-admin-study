@@ -1,5 +1,10 @@
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import {
   createCustomer,
   deleteCustomer as deleteCustomerRequest,
@@ -9,6 +14,7 @@ import {
 } from './customerApi'
 import type {
   Customer,
+  CustomerListParams,
   CustomerSortDirection,
   CustomerSortField,
   CustomerStatusFilter,
@@ -17,6 +23,7 @@ import type {
 
 const customersQueryKey = ['customers'] as const
 const emptyCustomers: Customer[] = []
+const pageSize = 2
 
 export function useCustomers() {
   const queryClient = useQueryClient()
@@ -26,10 +33,19 @@ export function useCustomers() {
   const [sortDirection, setSortDirection] =
     useState<CustomerSortDirection>('asc')
   const [currentPage, setCurrentPage] = useState(1)
+  const customerListParams: CustomerListParams = {
+    searchText,
+    statusFilter,
+    sortField,
+    sortDirection,
+    page: currentPage,
+    pageSize,
+  }
 
   const customersQuery = useQuery({
-    queryKey: customersQueryKey,
-    queryFn: listCustomers,
+    queryKey: [...customersQueryKey, customerListParams],
+    queryFn: () => listCustomers(customerListParams),
+    placeholderData: keepPreviousData,
   })
 
   const addCustomerMutation = useMutation({
@@ -67,10 +83,13 @@ export function useCustomers() {
     },
   })
 
-  const customerList = customersQuery.data ?? emptyCustomers
+  const customerListResult = customersQuery.data
+  const customerList = customerListResult?.customers ?? emptyCustomers
   const hasActiveFilters = searchText !== '' || statusFilter !== 'all'
-  const totalCustomerCount = customerList.length
-  const pageSize = 2
+  const totalCustomerCount = customerListResult?.totalCustomerCount ?? 0
+  const filteredCustomerCount = customerListResult?.filteredCustomerCount ?? 0
+  const totalPageCount = customerListResult?.totalPageCount ?? 1
+  const safeCurrentPage = customerListResult?.page ?? currentPage
   const updatingCustomerId = updateCustomerMutation.isPending
     ? updateCustomerMutation.variables?.customerId ?? null
     : null
@@ -87,44 +106,15 @@ export function useCustomers() {
   const errorMessage =
     customersQuery.error instanceof Error ? customersQuery.error.message : null
 
-  const filteredCustomers = useMemo(() => {
-    const keyword = searchText.toLowerCase()
+  function changeSearchText(nextSearchText: string) {
+    setSearchText(nextSearchText)
+    setCurrentPage(1)
+  }
 
-    return customerList.filter((customer) => {
-      const matchesKeyword =
-        customer.name.toLowerCase().includes(keyword) ||
-        customer.email.toLowerCase().includes(keyword)
-      const matchesStatus =
-        statusFilter === 'all' || customer.status === statusFilter
-
-      return matchesKeyword && matchesStatus
-    })
-  }, [customerList, searchText, statusFilter])
-
-  const sortedCustomers = useMemo(() => {
-    if (sortField === null) {
-      return filteredCustomers
-    }
-
-    // sort() 会改原数组，所以先复制，再排序。
-    return [...filteredCustomers].sort((firstCustomer, secondCustomer) => {
-      const result = firstCustomer[sortField].localeCompare(
-        secondCustomer[sortField],
-      )
-
-      return sortDirection === 'asc' ? result : -result
-    })
-  }, [filteredCustomers, sortDirection, sortField])
-
-  const totalPageCount = Math.max(1, Math.ceil(sortedCustomers.length / pageSize))
-  const safeCurrentPage = Math.min(currentPage, totalPageCount)
-
-  const pagedCustomers = useMemo(() => {
-    const startIndex = (safeCurrentPage - 1) * pageSize
-    const endIndex = startIndex + pageSize
-
-    return sortedCustomers.slice(startIndex, endIndex)
-  }, [pageSize, safeCurrentPage, sortedCustomers])
+  function changeStatusFilter(nextStatusFilter: CustomerStatusFilter) {
+    setStatusFilter(nextStatusFilter)
+    setCurrentPage(1)
+  }
 
   function clearFilters() {
     setSearchText('')
@@ -180,21 +170,22 @@ export function useCustomers() {
     statusFilter,
     hasActiveFilters,
     totalCustomerCount,
-    filteredCustomers: pagedCustomers,
-    filteredCustomerCount: sortedCustomers.length,
+    filteredCustomers: customerList,
+    filteredCustomerCount,
     sortField,
     sortDirection,
     currentPage: safeCurrentPage,
     pageSize,
     totalPageCount,
-    isLoading: customersQuery.isPending || customersQuery.isFetching,
+    isLoading: customersQuery.isPending,
+    isRefreshing: customersQuery.isFetching && !customersQuery.isPending,
     isCustomerActionPending,
     updatingCustomerId,
     deletingCustomerId,
     togglingCustomerId,
     errorMessage,
-    setSearchText,
-    setStatusFilter,
+    setSearchText: changeSearchText,
+    setStatusFilter: changeStatusFilter,
     clearFilters,
     changeSort,
     changePage,
