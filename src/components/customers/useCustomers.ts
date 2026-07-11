@@ -15,6 +15,7 @@ import {
 import type {
   Customer,
   CustomerListParams,
+  CustomerListResult,
   CustomerSortDirection,
   CustomerSortField,
   CustomerStatusFilter,
@@ -24,6 +25,32 @@ import type {
 const customersQueryKey = ['customers'] as const
 const emptyCustomers: Customer[] = []
 const pageSize = 2
+
+function toggleCustomerStatusInResult(
+  customerListResult: CustomerListResult | undefined,
+  customerId: string,
+): CustomerListResult | undefined {
+  if (customerListResult === undefined) {
+    return undefined
+  }
+
+  return {
+    ...customerListResult,
+    customers: customerListResult.customers.map((customer) => {
+      if (customer.id !== customerId) {
+        return customer
+      }
+
+      const nextStatus: Customer['status'] =
+        customer.status === 'active' ? 'inactive' : 'active'
+
+      return {
+        ...customer,
+        status: nextStatus,
+      }
+    }),
+  }
+}
 
 export function useCustomers() {
   const queryClient = useQueryClient()
@@ -78,7 +105,38 @@ export function useCustomers() {
 
   const toggleCustomerStatusMutation = useMutation({
     mutationFn: toggleCustomerStatusRequest,
-    onSuccess: async () => {
+    onMutate: async (customerId) => {
+      /*
+       onMutate   // 请求前，先改缓存
+  onError    // 请求失败，回滚缓存
+  onSettled  // 不管成功失败，最后重新拉一次
+  // */
+      await queryClient.cancelQueries({ queryKey: customersQueryKey })
+
+      const queryKey = [...customersQueryKey, customerListParams]
+      const previousCustomerListResult =
+        queryClient.getQueryData<CustomerListResult>(queryKey)
+
+      queryClient.setQueryData<CustomerListResult>(queryKey, (currentData) =>
+        toggleCustomerStatusInResult(currentData, customerId),
+      )
+
+      return {
+        previousCustomerListResult,
+        queryKey,
+      }
+    },
+    onError: (_error, _customerId, context) => {
+      if (context?.previousCustomerListResult === undefined) {
+        return
+      }
+
+      queryClient.setQueryData(
+        context.queryKey,
+        context.previousCustomerListResult,
+      )
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: customersQueryKey })
     },
   })

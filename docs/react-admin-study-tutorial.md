@@ -13,6 +13,8 @@
 - react-hook-form
 - zod
 - @hookform/resolvers
+- @tanstack/react-query
+- react-router
 
 常用验证命令：
 
@@ -1588,6 +1590,485 @@ deleteCustomer/toggleCustomerStatus 报错
   -> 右上角显示错误提示
 ```
 
+## 第八阶段：TanStack Query
+
+这一阶段把第七阶段手动维护的请求状态，升级成由 TanStack Query 统一管理的服务端状态。
+
+主要文件：
+
+- `src/main.tsx`
+- `src/components/customers/useCustomers.ts`
+- `src/components/customers/customerApi.ts`
+- `src/components/customers/types.ts`
+- `src/components/customers/CustomerSearch.tsx`
+- `src/components/customers/CustomerTable.tsx`
+
+这一阶段完成了：
+
+- `QueryClientProvider`
+- `useQuery`
+- `useMutation`
+- `queryKey` 参数化
+- `invalidateQueries`
+- mutation pending 状态
+- 模拟服务端搜索、筛选、排序和分页
+- `keepPreviousData`
+- optimistic update
+- 请求失败回滚
+
+### QueryClientProvider
+
+TanStack Query 需要一个全局的 `QueryClient` 保存查询缓存和默认配置。
+
+项目在 `main.tsx` 中创建：
+
+```tsx
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 0,
+    },
+  },
+})
+```
+
+然后包住整个应用：
+
+```tsx
+<QueryClientProvider client={queryClient}>
+  <App />
+</QueryClientProvider>
+```
+
+这样应用里的组件才能调用 `useQuery`、`useMutation` 和 `useQueryClient`。
+
+### useQuery 管读取数据
+
+客户列表使用：
+
+```ts
+const customersQuery = useQuery({
+  queryKey: [...customersQueryKey, customerListParams],
+  queryFn: () => listCustomers(customerListParams),
+  placeholderData: keepPreviousData,
+})
+```
+
+这里有三个核心配置：
+
+```txt
+queryKey       -> 这份数据在缓存里的身份
+queryFn        -> 真正执行请求的函数
+placeholderData -> 新请求期间暂时展示什么数据
+```
+
+列表数据来自：
+
+```ts
+const customerListResult = customersQuery.data
+```
+
+加载状态和错误也不再手动 `setState`：
+
+```ts
+isLoading: customersQuery.isPending
+isRefreshing: customersQuery.isFetching && !customersQuery.isPending
+errorMessage:
+  customersQuery.error instanceof Error
+    ? customersQuery.error.message
+    : null
+```
+
+### queryKey 为什么要带参数
+
+列表请求参数被统一放进：
+
+```ts
+const customerListParams = {
+  searchText,
+  statusFilter,
+  sortField,
+  sortDirection,
+  page: currentPage,
+  pageSize,
+}
+```
+
+然后组成 queryKey：
+
+```ts
+['customers', customerListParams]
+```
+
+不同页码、搜索词和筛选条件代表不同查询：
+
+```ts
+['customers', { page: 1, searchText: '' }]
+['customers', { page: 2, searchText: '' }]
+['customers', { page: 1, searchText: 'jack' }]
+```
+
+只要影响接口结果的参数变化，queryKey 就会变化，TanStack Query 会执行对应的 `queryFn`，并分别缓存结果。
+
+当前数据流是：
+
+```txt
+React 状态变化
+  -> customerListParams 变化
+  -> queryKey 变化
+  -> listCustomers(params) 重新执行
+  -> 新结果进入缓存
+  -> 组件重新渲染
+```
+
+### 模拟服务端分页
+
+第七阶段是先取全部数据，再在前端执行 `filter`、`sort` 和 `slice`。
+
+第八阶段改成：
+
+```txt
+前端传查询参数
+  -> customerApi 筛选和排序
+  -> customerApi 计算分页
+  -> 只返回当前页数据和总数
+```
+
+接口入参类型：
+
+```ts
+export type CustomerListParams = {
+  searchText: string
+  statusFilter: CustomerStatusFilter
+  sortField: CustomerSortField | null
+  sortDirection: CustomerSortDirection
+  page: number
+  pageSize: number
+}
+```
+
+接口返回类型：
+
+```ts
+export type CustomerListResult = {
+  customers: Customer[]
+  totalCustomerCount: number
+  filteredCustomerCount: number
+  page: number
+  pageSize: number
+  totalPageCount: number
+}
+```
+
+这更接近真实后台接口的请求和响应结构。
+
+### keepPreviousData
+
+分页或筛选变化后，新请求需要一段时间才能返回。
+
+```ts
+placeholderData: keepPreviousData
+```
+
+会在请求新 queryKey 时暂时保留上一份数据，避免表格瞬间清空。
+
+因此项目区分：
+
+```txt
+isPending  -> 首次加载，还没有可展示的数据
+isFetching -> 正在请求，可能已经有旧数据可展示
+```
+
+### useMutation 管修改数据
+
+新增、编辑、删除和切换状态使用 `useMutation`。
+
+编辑客户的 mutation：
+
+```ts
+const updateCustomerMutation = useMutation({
+  mutationFn: ({ customerId, customerInput }) =>
+    updateCustomerRequest(customerId, customerInput),
+  onSuccess: async () => {
+    await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+  },
+})
+```
+
+真正执行时调用：
+
+```ts
+await updateCustomerMutation.mutateAsync({
+  customerId,
+  customerInput,
+})
+```
+
+`useMutation` 不会像 `useQuery` 一样自动执行。`mutate` 或 `mutateAsync` 才会触发请求。
+
+### mutation pending 状态
+
+每个 mutation 都会提供 `isPending` 和 `variables`。
+
+```ts
+const togglingCustomerId = toggleCustomerStatusMutation.isPending
+  ? toggleCustomerStatusMutation.variables
+  : null
+```
+
+含义是：
+
+```txt
+isPending -> 当前修改请求是否还在执行
+variables -> 这次请求传进去的参数
+```
+
+表格根据客户 id 显示 `Updating...`、`Saving...`、`Deleting...`，并在请求期间禁用操作按钮，避免重复提交。
+
+### invalidateQueries
+
+修改成功后：
+
+```ts
+await queryClient.invalidateQueries({
+  queryKey: customersQueryKey,
+})
+```
+
+它不是直接删除缓存，而是：
+
+```txt
+把匹配的查询标记为过期
+  -> 当前正在使用的查询重新请求
+  -> 用服务端最新结果更新缓存
+```
+
+基础 key 是：
+
+```ts
+['customers']
+```
+
+所以它可以匹配：
+
+```ts
+['customers', { page: 1, ... }]
+['customers', { page: 2, ... }]
+```
+
+### optimistic update
+
+切换客户状态使用乐观更新：不等待接口返回，先修改缓存，让 UI 立即变化。
+
+生命周期是：
+
+```txt
+onMutate  -> 请求前保存旧缓存并修改 UI
+mutationFn -> 真正请求接口
+onError   -> 失败时恢复旧缓存
+onSettled -> 成功失败都重新请求服务端数据
+```
+
+`onMutate` 中先取消旧请求：
+
+```ts
+await queryClient.cancelQueries({ queryKey: customersQueryKey })
+```
+
+然后保存旧缓存：
+
+```ts
+const previousCustomerListResult =
+  queryClient.getQueryData<CustomerListResult>(queryKey)
+```
+
+再立即修改缓存：
+
+```ts
+queryClient.setQueryData<CustomerListResult>(queryKey, (currentData) =>
+  toggleCustomerStatusInResult(currentData, customerId),
+)
+```
+
+`onMutate` 返回的数据会传给后续回调：
+
+```ts
+return {
+  previousCustomerListResult,
+  queryKey,
+}
+```
+
+请求失败时，`onError` 用它回滚：
+
+```ts
+queryClient.setQueryData(
+  context.queryKey,
+  context.previousCustomerListResult,
+)
+```
+
+最后：
+
+```ts
+onSettled: async () => {
+  await queryClient.invalidateQueries({ queryKey: customersQueryKey })
+}
+```
+
+无论请求成功还是失败，都重新读取服务端数据，保证最终一致。
+
+## 第九阶段：React Router（进行中）
+
+这一阶段把项目从 `useState` 控制的伪页面切换，升级成由 URL 驱动的真实多页面后台结构。
+
+第一小节主要文件：
+
+- `src/main.tsx`
+- `src/router.tsx`
+- `src/App.tsx`
+- `src/components/layout/Sidebar.tsx`
+- `src/pages/NotFoundPage.tsx`
+
+### 从页面状态改成 URL 状态
+
+以前 `App.tsx` 保存：
+
+```ts
+const [activePage, setActivePage] = useState('dashboard')
+```
+
+点击侧边栏只是修改 React 状态，浏览器地址不变，刷新页面也无法恢复当前页面。
+
+接入路由后，页面状态变成：
+
+```txt
+/dashboard -> Dashboard
+/customers -> Customers
+/orders    -> Orders
+```
+
+URL 成为当前页面的唯一来源。
+
+### createBrowserRouter
+
+路由配置集中在 `src/router.tsx`：
+
+```tsx
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <App />,
+    children: [
+      {
+        index: true,
+        element: <Navigate replace to="/dashboard" />,
+      },
+      {
+        path: 'dashboard',
+        element: <ContentPage activePage="dashboard" />,
+      },
+      {
+        path: 'customers',
+        element: <ContentPage activePage="customers" />,
+      },
+      {
+        path: 'orders',
+        element: <ContentPage activePage="orders" />,
+      },
+    ],
+  },
+])
+```
+
+这里 `/` 是父路由，`dashboard`、`customers`、`orders` 是它的子路由。
+
+### RouterProvider
+
+应用入口不再直接渲染 `<App />`：
+
+```tsx
+<QueryClientProvider client={queryClient}>
+  <RouterProvider router={router} />
+</QueryClientProvider>
+```
+
+`RouterProvider` 根据当前 URL 找到匹配的路由组件。
+
+### Outlet
+
+`App.tsx` 现在是后台公共布局：
+
+```tsx
+<Sidebar />
+<Header />
+<Outlet />
+```
+
+`Sidebar` 和 `Header` 始终存在，`Outlet` 是子路由内容的插槽。
+
+例如访问 `/customers` 时：
+
+```txt
+App 后台布局
+  -> Sidebar
+  -> Header
+  -> Outlet 渲染客户页面
+```
+
+### NavLink
+
+侧边栏不再接收 `activePage` 和 `onPageChange`。
+
+```tsx
+<NavLink
+  to="/customers"
+  className={({ isActive }) =>
+    isActive ? activeClassName : defaultClassName
+  }
+>
+  Customers
+</NavLink>
+```
+
+`NavLink` 会执行路由跳转，并通过 `isActive` 告诉组件当前链接是否匹配 URL。
+
+### Navigate
+
+根路径 `/` 没有具体页面，所以：
+
+```tsx
+<Navigate replace to="/dashboard" />
+```
+
+会把它重定向到 `/dashboard`。
+
+`replace` 表示替换当前浏览器历史记录，用户点击返回时不会再次回到空的 `/`。
+
+### 404 路由
+
+最后一个子路由：
+
+```tsx
+{
+  path: '*',
+  element: <NotFoundPage />,
+}
+```
+
+`*` 匹配前面都没有匹配到的路径，因此访问不存在的地址时会显示 404 页面。
+
+当前路由数据流是：
+
+```txt
+点击 NavLink
+  -> 浏览器 URL 变化
+  -> RouterProvider 重新匹配路由
+  -> App 保留公共布局
+  -> Outlet 渲染对应页面
+  -> NavLink 根据 URL 更新高亮状态
+```
+
 ## 当前项目能力
 
 当前这个学习项目已经覆盖：
@@ -1623,26 +2104,33 @@ deleteCustomer/toggleCustomerStatus 报错
 - loading/error/empty 状态
 - Retry 重新请求
 - 异步新增、编辑、删除、更新状态
+- QueryClientProvider
+- useQuery/useMutation
+- queryKey 参数化
+- TanStack Query 缓存
+- mutation pending 状态
+- invalidateQueries
+- keepPreviousData
+- 服务端分页模型
+- optimistic update
+- 失败回滚
+- createBrowserRouter/RouterProvider
+- 嵌套路由和 Outlet
+- NavLink 导航和激活状态
+- Navigate 重定向
+- 404 路由
 
 ## 还没完成的后续阶段
 
 接下来建议继续：
 
-1. TanStack Query
-   - query
-   - mutation
-   - 缓存
-   - 乐观更新
-   - 失败回滚
-
-2. React Router
-   - 列表页
+1. React Router（进行中）
    - 详情页
    - 编辑页
    - URL 参数
    - query 参数
 
-3. TanStack Table
+2. TanStack Table
    - 列定义
    - 排序
    - 筛选
@@ -1650,13 +2138,13 @@ deleteCustomer/toggleCustomerStatus 报错
    - 行选择
    - 批量操作
 
-4. 登录和权限
+3. 登录和权限
    - token
    - 路由守卫
    - 用户信息
    - 按权限显示菜单和按钮
 
-5. 工程化
+4. 工程化
    - API 分层
    - 类型分层
    - 环境变量
