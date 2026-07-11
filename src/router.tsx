@@ -1,5 +1,6 @@
 import { Navigate, createBrowserRouter } from 'react-router'
 import App from './App'
+import { CustomerDetailPage } from './pages/CustomerDetailPage'
 import { ContentPage } from './pages/ContentPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -19,6 +20,10 @@ export const router = createBrowserRouter([
       {
         path: 'customers',
         element: <ContentPage activePage="customers" />,
+      },
+      {
+        path: 'customers/:customerId',
+        element: <CustomerDetailPage />,
       },
       {
         path: 'orders',

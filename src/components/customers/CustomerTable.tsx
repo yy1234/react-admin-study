@@ -9,6 +9,7 @@ import { CustomerForm } from './CustomerForm'
 import { CustomerPagination } from './CustomerPagination'
 import { Badge } from '../ui/Badge'
 import { Button } from '@/components/shadcn-ui/button'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 import {
   Table,
@@ -148,7 +149,14 @@ export function CustomerTable({
                 <TableCell className="font-medium text-foreground">
                   {customer.id}
                 </TableCell>
-                <TableCell>{customer.name}</TableCell>
+                <TableCell>
+                  <Link
+                    className="font-medium text-foreground hover:underline"
+                    to={`/customers/${encodeURIComponent(customer.id)}`}
+                  >
+                    {customer.name}
+                  </Link>
+                </TableCell>
                 <TableCell className="text-muted-foreground">
                   {customer.email}
                 </TableCell>

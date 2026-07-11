@@ -104,6 +104,12 @@ export async function listCustomers({
   }
 }
 
+export async function getCustomer(customerId: string) {
+  await waitForRequest()
+
+  return cloneCustomer(findCustomerById(customerId))
+}
+
 export async function createCustomer(customerInput: NewCustomerInput) {
   await waitForRequest()
 
