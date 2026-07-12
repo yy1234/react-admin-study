@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 import { getCustomer } from '../components/customers/customerApi'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
@@ -8,6 +8,8 @@ import { Button } from '../components/shadcn-ui/button'
 
 export function CustomerDetailPage() {
   const { customerId = '' } = useParams<{ customerId: string }>()
+  const { search } = useLocation()
+  const customerListUrl = `/customers${search}`
   const customerQuery = useQuery({
     queryKey: ['customers', 'detail', customerId],
     queryFn: () => getCustomer(customerId),
@@ -42,7 +44,7 @@ export function CustomerDetailPage() {
     return (
       <main className="flex-1 p-6">
         <Button asChild size="sm" variant="ghost">
-          <Link to="/customers">
+          <Link to={customerListUrl}>
             <ArrowLeft />
             Back to customers
           </Link>
@@ -65,7 +67,7 @@ export function CustomerDetailPage() {
   return (
     <main className="flex-1 p-6">
       <Button asChild size="sm" variant="ghost">
-        <Link to="/customers">
+        <Link to={customerListUrl}>
           <ArrowLeft />
           Back to customers
         </Link>

@@ -1,10 +1,10 @@
-import { useState } from 'react'
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router'
 import {
   createCustomer,
   deleteCustomer as deleteCustomerRequest,
@@ -25,6 +25,27 @@ import type {
 const customersQueryKey = ['customers'] as const
 const emptyCustomers: Customer[] = []
 const pageSize = 2
+
+// 安全解析 URL 查询参数，值不合法时退回默认值，防止手动改 URL 搞崩页面
+function parseStatusFilter(value: string | null): CustomerStatusFilter {
+  return value === 'active' || value === 'inactive' ? value : 'all'
+}
+
+function parseSortField(value: string | null): CustomerSortField | null {
+  return value === 'name' || value === 'email' || value === 'status'
+    ? value
+    : null
+}
+
+function parseSortDirection(value: string | null): CustomerSortDirection {
+  return value === 'desc' ? 'desc' : 'asc'
+}
+
+function parsePage(value: string | null) {
+  const page = Number(value)
+
+  return Number.isInteger(page) && page > 0 ? page : 1
+}
 
 function toggleCustomerStatusInResult(
   customerListResult: CustomerListResult | undefined,
@@ -54,12 +75,13 @@ function toggleCustomerStatusInResult(
 
 export function useCustomers() {
   const queryClient = useQueryClient()
-  const [searchText, setSearchText] = useState('')
-  const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>('all')
-  const [sortField, setSortField] = useState<CustomerSortField | null>(null)
-  const [sortDirection, setSortDirection] =
-    useState<CustomerSortDirection>('asc')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const searchText = searchParams.get('q') ?? ''
+  const statusFilter = parseStatusFilter(searchParams.get('status'))
+  const sortField = parseSortField(searchParams.get('sort'))
+  const sortDirection = parseSortDirection(searchParams.get('direction'))
+  const currentPage = parsePage(searchParams.get('page'))
+  // 所有筛选/排序/分页参数统一放在一个对象里，同时作为 queryKey 的一部分和 API 函数参数
   const customerListParams: CustomerListParams = {
     searchText,
     statusFilter,
@@ -69,20 +91,24 @@ export function useCustomers() {
     pageSize,
   }
 
+  // queryKey 里包含 customerListParams → 参数变了 key 就变 → React Query 自动重新请求
+  // keepPreviousData：新数据回来前保持旧数据显示，翻页/筛选不生硬闪烁
   const customersQuery = useQuery({
     queryKey: [...customersQueryKey, customerListParams],
     queryFn: () => listCustomers(customerListParams),
     placeholderData: keepPreviousData,
   })
 
+  // 新增后回到第一页（新客户排最前面），然后刷新缓存
   const addCustomerMutation = useMutation({
     mutationFn: createCustomer,
     onSuccess: async () => {
-      setCurrentPage(1)
+      updateCustomerSearchParams({ page: null })
       await queryClient.invalidateQueries({ queryKey: customersQueryKey })
     },
   })
 
+  // 编辑和删除：等服务器确认后直接刷新缓存即可
   const updateCustomerMutation = useMutation({
     mutationFn: ({
       customerId,
@@ -103,6 +129,8 @@ export function useCustomers() {
     },
   })
 
+  // 切换状态使用乐观更新：先在缓存里翻转状态（UI 立刻变化），
+  // 请求失败则回滚，最后不管成败都刷新一次确保数据一致
   const toggleCustomerStatusMutation = useMutation({
     mutationFn: toggleCustomerStatusRequest,
     onMutate: async (customerId) => {
@@ -144,10 +172,12 @@ export function useCustomers() {
   const customerListResult = customersQuery.data
   const customerList = customerListResult?.customers ?? emptyCustomers
   const hasActiveFilters = searchText !== '' || statusFilter !== 'all'
+  // 服务端返回的总数、筛选计数、总页数，作为分页和计数显示的唯一数据源（single source of truth）
   const totalCustomerCount = customerListResult?.totalCustomerCount ?? 0
   const filteredCustomerCount = customerListResult?.filteredCustomerCount ?? 0
   const totalPageCount = customerListResult?.totalPageCount ?? 1
   const safeCurrentPage = customerListResult?.page ?? currentPage
+  // 提取每个正在进行的变更操作对应的客户 ID，UI 层据此在对应行显示 loading / 禁用按钮
   const updatingCustomerId = updateCustomerMutation.isPending
     ? updateCustomerMutation.variables?.customerId ?? null
     : null
@@ -164,40 +194,87 @@ export function useCustomers() {
   const errorMessage =
     customersQuery.error instanceof Error ? customersQuery.error.message : null
 
+  // 搜索是连续输入，用 replace 避免每个字符都在浏览器历史中留一条记录
   function changeSearchText(nextSearchText: string) {
-    setSearchText(nextSearchText)
-    setCurrentPage(1)
+    updateCustomerSearchParams(
+      {
+        q: nextSearchText === '' ? null : nextSearchText,
+        page: null,
+      },
+      true,
+    )
   }
 
   function changeStatusFilter(nextStatusFilter: CustomerStatusFilter) {
-    setStatusFilter(nextStatusFilter)
-    setCurrentPage(1)
+    updateCustomerSearchParams({
+      status: nextStatusFilter === 'all' ? null : nextStatusFilter,
+      page: null,
+    })
   }
 
   function clearFilters() {
-    setSearchText('')
-    setStatusFilter('all')
-    setCurrentPage(1)
+    updateCustomerSearchParams({
+      q: null,
+      status: null,
+      page: null,
+    })
   }
 
   function changeSort(nextSortField: CustomerSortField) {
     if (sortField !== nextSortField) {
-      setSortField(nextSortField)
-      setSortDirection('asc')
-      setCurrentPage(1)
+      updateCustomerSearchParams({
+        sort: nextSortField,
+        direction: null,
+        page: null,
+      })
       return
     }
 
-    setSortDirection((currentDirection) =>
-      currentDirection === 'asc' ? 'desc' : 'asc',
-    )
-    setCurrentPage(1)
+    const nextSortDirection = sortDirection === 'asc' ? 'desc' : 'asc'
+
+    updateCustomerSearchParams({
+      direction: nextSortDirection === 'asc' ? null : nextSortDirection,
+      page: null,
+    })
   }
 
   function changePage(nextPage: number) {
     const safePage = Math.min(Math.max(nextPage, 1), totalPageCount)
 
-    setCurrentPage(safePage)
+    updateCustomerSearchParams({
+      page: safePage === 1 ? null : String(safePage),
+    })
+  }
+
+  // 验证过 URL 参数用 value=null 删除键，value=string 设置键，未列出的键原样保留
+  // 调用 this function 来更新 URL 查询参数，从而间接改变上面的 customerListParams
+  function updateCustomerSearchParams(
+    updates: Record<string, string | null>,
+    replace = false,
+  ) {
+    setSearchParams(
+      (currentSearchParams) => {
+        // 基于旧 URLSearchParams 创建副本，在副本上增删，返回新对象（不可变更新）
+        const nextSearchParams = new URLSearchParams(currentSearchParams)
+        // 例如当前 URL 是 /customers?q=zhang&status=active&page=2
+        // currentSearchParams.toString() → "q=zhang&status=active&page=2"
+        // nextSearchParams 是它的副本，下面在副本上增删改
+
+        Object.entries(updates).forEach(([key, value]) => {
+          if (value === null) {
+            nextSearchParams.delete(key)
+            return
+          }
+
+          nextSearchParams.set(key, value)
+        })
+
+        return nextSearchParams
+      },
+      // replace=true：替换当前历史记录，不新增，适合连续输入（搜索）
+      // replace=false（默认）：新增一条历史记录，用户可按后退键回到上一步
+      { replace },
+    )
   }
 
   async function loadCustomers() {

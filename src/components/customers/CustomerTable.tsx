@@ -9,7 +9,7 @@ import { CustomerForm } from './CustomerForm'
 import { CustomerPagination } from './CustomerPagination'
 import { Badge } from '../ui/Badge'
 import { Button } from '@/components/shadcn-ui/button'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import {
   Table,
@@ -78,6 +78,8 @@ export function CustomerTable({
   onDeleteCustomer,
   onToggleCustomerStatus,
 }: CustomerTableProps) {
+  const { search } = useLocation()
+
   function renderSortIndicator(field: CustomerSortField) {
     if (sortField !== field) {
       return null
@@ -152,7 +154,7 @@ export function CustomerTable({
                 <TableCell>
                   <Link
                     className="font-medium text-foreground hover:underline"
-                    to={`/customers/${encodeURIComponent(customer.id)}`}
+                    to={`/customers/${encodeURIComponent(customer.id)}${search}`}
                   >
                     {customer.name}
                   </Link>
